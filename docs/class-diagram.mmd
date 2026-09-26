@@ -1,0 +1,195 @@
+classDiagram
+    direction TB
+
+    %% ---------- API layer ----------
+    class ExpenseController {
+        +addExpense(CreateExpenseRequest) ApiResponse
+        +deleteExpense(requesterId, expenseId) ApiResponse
+    }
+    class BalanceController {
+        +groupBalances(requesterId, groupId) ApiResponse
+        +suggestSettlements(requesterId, groupId) ApiResponse
+        +settleUp(SettleUpRequest) ApiResponse
+    }
+
+    %% ---------- Service layer ----------
+    class ExpenseService {
+        +addExpense(CreateExpenseRequest) ExpenseResponse
+        +deleteExpense(requesterId, expenseId)
+    }
+    class SettlementService {
+        +suggestSettlements(requesterId, groupId) List~Transaction~
+        +settleUp(SettleUpRequest) PaymentResponse
+    }
+    class GroupService {
+        +createGroup(CreateGroupRequest) Group
+        +addMember(AddMemberRequest)
+        +removeMember(requesterId, groupId, userId)
+    }
+    class BalanceService {
+        +groupBalances(requesterId, groupId) Map
+        +userSummary(userId) UserBalanceSummary
+    }
+
+    %% ---------- Domain ----------
+    class User {
+        -String userId
+        -String name
+        -String email
+    }
+    class Group {
+        <<Aggregate Root>>
+        -String groupId
+        -Map~String,User~ members
+        -BalanceSheet ledger
+        +addMember(User)
+        +removeMember(User)
+        +recordExpense(Expense)
+        +revertExpense(Expense)
+        +recordPayment(Payment)
+        +netBalances() Map~User,BigDecimal~
+    }
+    class Expense {
+        <<immutable, Builder>>
+        -String expenseId
+        -String groupId
+        -User paidBy
+        -BigDecimal amount
+        -SplitType splitType
+        -List~Split~ splits
+        +involvedUserIds() Set~String~
+    }
+    class Split {
+        <<record>>
+        User user
+        BigDecimal amount
+    }
+    class Payment {
+        <<record>>
+        User from
+        User to
+        BigDecimal amount
+    }
+    class Transaction {
+        <<record>>
+        User from
+        User to
+        BigDecimal amount
+    }
+    class SplitType {
+        <<enum>>
+        EQUAL
+        EXACT
+        PERCENTAGE
+        SHARES
+    }
+
+    %% ---------- Ledger + concurrency ----------
+    class BalanceSheet {
+        -balances : userId → userId → BigDecimal
+        -LockManager lockManager
+        +applyExpense(Expense, Runnable precondition)
+        +revertExpense(Expense)
+        +applyPayment(Payment, Runnable precondition)
+        +netBalances(Set~String~) Map
+        +snapshot(Collection~String~) Map
+    }
+    class LockManager {
+        -ConcurrentHashMap~String,ReentrantLock~ locks
+        +withLocks(Collection~String~ keys, Supplier action) T
+    }
+
+    %% ---------- Strategy ----------
+    class SplitStrategy {
+        <<interface>>
+        +type() SplitType
+        +split(BigDecimal total, List~SplitInput~) List~Split~
+    }
+    class AbstractSplitStrategy {
+        <<abstract, Template Method>>
+        +split(total, inputs) List~Split~
+        #validate(total, inputs)*
+        #compute(total, inputs)* List~Split~
+        #allocate(total, inputs, weights)$ List~Split~
+    }
+    class EqualSplitStrategy
+    class ExactSplitStrategy
+    class PercentageSplitStrategy
+    class SharesSplitStrategy
+    class SplitStrategyFactory {
+        -EnumMap~SplitType,SplitStrategy~ registry
+        +get(SplitType) SplitStrategy
+    }
+
+    %% ---------- Cross-cutting ----------
+    class IdempotencyStore {
+        -ConcurrentHashMap~String,IdempotencyRecord~ records
+        +execute(scopedKey, requestHash, Supplier) T
+    }
+    class DebtSimplifier {
+        +simplify(Map~User,BigDecimal~) List~Transaction~
+    }
+    class EventPublisher {
+        <<Subject>>
+        -List~EventListener~ listeners
+        +subscribe(EventListener)
+        +publish(SplitwiseEvent)
+    }
+    class EventListener {
+        <<interface>>
+        +onEvent(SplitwiseEvent)
+    }
+    class NotificationListener
+    class ActivityFeedListener
+
+    %% ---------- Repositories ----------
+    class GroupRepository {
+        <<interface>>
+        +findById(groupId) Optional~Group~
+        +findByMember(userId) List~Group~
+    }
+    class ExpenseRepository {
+        <<interface>>
+        +save(Expense)
+        +findByGroup(groupId, page, size) List~Expense~
+        +delete(expenseId) Optional~Expense~
+    }
+
+    %% ---------- Relationships ----------
+    ExpenseController --> ExpenseService
+    BalanceController --> BalanceService
+    BalanceController --> SettlementService
+
+    ExpenseService --> SplitStrategyFactory
+    ExpenseService --> IdempotencyStore
+    ExpenseService --> EventPublisher
+    ExpenseService --> ExpenseRepository
+    ExpenseService --> GroupRepository
+    SettlementService --> DebtSimplifier
+    SettlementService --> IdempotencyStore
+    SettlementService --> EventPublisher
+    GroupService --> GroupRepository
+    GroupService --> EventPublisher
+    BalanceService --> GroupRepository
+
+    Group "1" *-- "1" BalanceSheet : owns
+    Group "1" o-- "*" User : members
+    BalanceSheet "1" *-- "1" LockManager
+    Expense "1" *-- "1..*" Split
+    Expense --> SplitType
+    Expense --> User : paidBy
+    Split --> User
+    Payment --> User
+
+    SplitStrategyFactory o-- SplitStrategy
+    SplitStrategy <|.. AbstractSplitStrategy
+    AbstractSplitStrategy <|-- EqualSplitStrategy
+    AbstractSplitStrategy <|-- ExactSplitStrategy
+    AbstractSplitStrategy <|-- PercentageSplitStrategy
+    AbstractSplitStrategy <|-- SharesSplitStrategy
+    SplitStrategy ..> Split : creates
+
+    EventPublisher o-- EventListener
+    EventListener <|.. NotificationListener
+    EventListener <|.. ActivityFeedListener
+    DebtSimplifier ..> Transaction : creates

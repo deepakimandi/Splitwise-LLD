@@ -1,0 +1,42 @@
+classDiagram
+    direction LR
+    class EventPublisher {
+        <<Subject>>
+        -CopyOnWriteArrayList~EventListener~ listeners
+        -Executor executor
+        +subscribe(EventListener)
+        +unsubscribe(EventListener)
+        +publish(SplitwiseEvent)
+    }
+    class EventListener {
+        <<interface: Observer>>
+        +onEvent(SplitwiseEvent)
+    }
+    class NotificationListener {
+        -NotificationChannel channel
+    }
+    class ActivityFeedListener {
+        +feed(groupId) List~SplitwiseEvent~
+    }
+    class NotificationChannel {
+        <<interface>>
+        +send(User, message)
+    }
+    class ConsoleNotificationChannel
+    class SplitwiseEvent {
+        <<record>>
+        EventType type
+        String groupId
+        User actor
+        Set~User~ affectedUsers
+        String message
+    }
+    ExpenseService --> EventPublisher : publish after commit
+    SettlementService --> EventPublisher
+    GroupService --> EventPublisher
+    EventPublisher o-- EventListener
+    EventListener <|.. NotificationListener
+    EventListener <|.. ActivityFeedListener
+    NotificationListener --> NotificationChannel
+    NotificationChannel <|.. ConsoleNotificationChannel
+    EventPublisher ..> SplitwiseEvent

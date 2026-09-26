@@ -1,0 +1,35 @@
+classDiagram
+    direction TB
+    class SplitStrategy {
+        <<interface>>
+        +type() SplitType
+        +split(total, List~SplitInput~) List~Split~
+    }
+    class AbstractSplitStrategy {
+        <<abstract>>
+        +split(total, inputs) List~Split~  «final template»
+        #validate(total, inputs)*
+        #compute(total, inputs)* List~Split~
+        #allocate(total, inputs, weights)$ List~Split~
+    }
+    class EqualSplitStrategy { weights = 1,1,1 }
+    class ExactSplitStrategy { rule: amounts add up to total }
+    class PercentageSplitStrategy { rule: percents add up to 100 }
+    class SharesSplitStrategy { weights = shares }
+    class SplitStrategyFactory {
+        -EnumMap~SplitType,SplitStrategy~ registry
+        +withDefaults()$ SplitStrategyFactory
+        +get(SplitType) SplitStrategy
+    }
+    class SplitInput {
+        <<record>>
+        User user
+        BigDecimal value
+    }
+    SplitStrategy <|.. AbstractSplitStrategy
+    AbstractSplitStrategy <|-- EqualSplitStrategy
+    AbstractSplitStrategy <|-- ExactSplitStrategy
+    AbstractSplitStrategy <|-- PercentageSplitStrategy
+    AbstractSplitStrategy <|-- SharesSplitStrategy
+    SplitStrategyFactory o-- SplitStrategy : registry
+    SplitStrategy ..> SplitInput : reads

@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant EC as ExpenseController
+    participant ES as ExpenseService
+    participant IS as IdempotencyStore
+    participant SS as SplitStrategy
+    participant G as Group
+    participant BS as BalanceSheet
+    participant EP as EventPublisher
+
+    C->>EC: POST /groups/{id}/expenses (Idempotency-Key)
+    EC->>ES: addExpense(request)
+    ES->>ES: RequestValidator.validate (shape)
+    ES->>IS: execute(userId:key, hash, op)
+    alt key already COMPLETED
+        IS-->>ES: stored response (no side effects)
+    else key IN_PROGRESS
+        IS-->>EC: 409 Conflict (retry later)
+    else new key
+        IS->>ES: run op
+        ES->>ES: load group, users, check requester is a member
+        ES->>SS: split(total, inputs)
+        SS-->>ES: List of Split (sums exactly to total)
+        ES->>ES: Expense.builder()...build()
+        ES->>G: recordExpense(expense)
+        G->>BS: applyExpense(expense, membership check)
+        BS->>BS: lock involved users in sorted order
+        BS->>BS: check members, post entries, unlock
+        ES->>ES: expenseRepository.save(expense)
+        ES->>EP: publish(EXPENSE_ADDED)
+        EP-->>EP: notify listeners (notifications, activity feed)
+        IS->>IS: mark COMPLETED + store response
+    end
+    ES-->>EC: ExpenseResponse
+    EC-->>C: 200 OK

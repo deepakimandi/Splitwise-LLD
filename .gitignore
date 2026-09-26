@@ -1,0 +1,10 @@
+out/
+*.class
+.idea/
+target/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.DS_Store
